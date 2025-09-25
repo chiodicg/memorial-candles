@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { CircleX  } from 'lucide-react';
 
-const Candle = ({ id, initialX, initialY, name, onNameChange, onRemove }) => {
+const Candle = ({ id, initialX, initialY, name, onNameChange, onPositionChange, onRemove }) => {
   const [position, setPosition] = useState({ x: initialX, y: initialY });
   const [isDragging, setIsDragging] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -28,6 +28,10 @@ const Candle = ({ id, initialX, initialY, name, onNameChange, onRemove }) => {
 
     const handleMouseUp = () => {
       setIsDragging(false);
+      // Notify parent of position change for persistence
+      if (onPositionChange) {
+        onPositionChange(id, position.x, position.y);
+      }
     };
 
     if (isDragging) {
@@ -39,7 +43,7 @@ const Candle = ({ id, initialX, initialY, name, onNameChange, onRemove }) => {
         document.removeEventListener('mouseup', handleMouseUp);
       };
     }
-  }, [isDragging]);
+  }, [isDragging, position.x, position.y, onPositionChange, id]);
 
   const handleMouseDown = (e) => {
     if (isEditing) return;
@@ -82,6 +86,10 @@ const Candle = ({ id, initialX, initialY, name, onNameChange, onRemove }) => {
 
   const handleTouchEnd = () => {
     setIsDragging(false);
+    // Notify parent of position change for persistence
+    if (onPositionChange) {
+      onPositionChange(id, position.x, position.y);
+    }
   };
 
   const handleNameClick = (e) => {
