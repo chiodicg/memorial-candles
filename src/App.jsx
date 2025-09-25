@@ -56,7 +56,7 @@ function App() {
         }
 
         // Start polling for real-time updates
-        gistService.startPolling(handlePollingUpdate, 3000);       
+        gistService.startPolling(handlePollingUpdate, gistService.defaultPollingInterval);       
       } catch (err) {
         console.error('Failed to load candles:', err);
         setError('Failed to load saved candles. Starting fresh.');
