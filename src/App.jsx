@@ -8,8 +8,6 @@ function App() {
   const [nextId, setNextId] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [syncStatus, setSyncStatus] = useState('disconnected'); // 'connected', 'syncing', 'disconnected', 'error'
-  const [lastSyncTime, setLastSyncTime] = useState(null);
   const isUpdatingRef = useRef(false); // Prevent conflicts during local updates
 
   // Smart merge function to handle remote updates
@@ -32,14 +30,10 @@ function App() {
       
       return merged;
     });
-
-    setLastSyncTime(new Date(timestamp));
-    setSyncStatus('connected');
   }, []);
 
   // Handle polling updates
   const handlePollingUpdate = useCallback((remoteCandles, timestamp) => {
-    setSyncStatus('syncing');
     setTimeout(() => {
       mergeRemoteCandles(remoteCandles, timestamp);
     }, 100); // Small delay to show syncing status
@@ -51,7 +45,6 @@ function App() {
       try {
         setIsLoading(true);
         setError(null);
-        setSyncStatus('syncing');
         
         const savedCandles = await gistService.loadCandles();
         
@@ -63,14 +56,10 @@ function App() {
         }
 
         // Start polling for real-time updates
-        gistService.startPolling(handlePollingUpdate, 3000);
-        setSyncStatus('connected');
-        setLastSyncTime(new Date());
-        
+        gistService.startPolling(handlePollingUpdate, 3000);       
       } catch (err) {
         console.error('Failed to load candles:', err);
         setError('Failed to load saved candles. Starting fresh.');
-        setSyncStatus('error');
       } finally {
         setIsLoading(false);
       }
@@ -87,7 +76,6 @@ function App() {
   const addCandle = async () => {
     // Set updating flag to prevent conflicts
     isUpdatingRef.current = true;
-    setSyncStatus('syncing');
 
     // Generate random position for new candle
     const x = Math.random() * (window.innerWidth - 100) + 50;
@@ -108,12 +96,9 @@ function App() {
     // Persist to Gist
     try {
       await gistService.addCandle(candles, newCandle);
-      setSyncStatus('connected');
-      setLastSyncTime(new Date());
     } catch (err) {
       console.error('Failed to save new candle:', err);
       setError('Failed to save candle. Changes may not persist.');
-      setSyncStatus('error');
     } finally {
       isUpdatingRef.current = false;
     }
@@ -121,7 +106,6 @@ function App() {
 
   const updateCandleName = async (id, name) => {
     isUpdatingRef.current = true;
-    setSyncStatus('syncing');
 
     // Update local state immediately
     const updatedCandles = candles.map(candle => 
@@ -132,12 +116,9 @@ function App() {
     // Persist to Gist
     try {
       await gistService.updateCandle(candles, id, { name });
-      setSyncStatus('connected');
-      setLastSyncTime(new Date());
     } catch (err) {
       console.error('Failed to update candle name:', err);
       setError('Failed to save name change. Changes may not persist.');
-      setSyncStatus('error');
     } finally {
       isUpdatingRef.current = false;
     }
@@ -155,7 +136,6 @@ function App() {
     // Persist to Gist (debounced to avoid too many API calls)
     try {
       await gistService.updateCandle(candles, id, { x, y });
-      setLastSyncTime(new Date());
     } catch (err) {
       console.error('Failed to update candle position:', err);
       // Don't show error for position updates as they're frequent
@@ -166,7 +146,6 @@ function App() {
 
   const removeCandle = async (id) => {
     isUpdatingRef.current = true;
-    setSyncStatus('syncing');
 
     // Update local state immediately
     const updatedCandles = candles.filter(candle => candle.id !== id);
@@ -175,12 +154,9 @@ function App() {
     // Persist to Gist
     try {
       await gistService.removeCandle(candles, id);
-      setSyncStatus('connected');
-      setLastSyncTime(new Date());
     } catch (err) {
       console.error('Failed to remove candle:', err);
       setError('Failed to remove candle. Changes may not persist.');
-      setSyncStatus('error');
     } finally {
       isUpdatingRef.current = false;
     }
@@ -188,24 +164,6 @@ function App() {
 
   const dismissError = () => {
     setError(null);
-  };
-
-  const getSyncStatusColor = () => {
-    switch (syncStatus) {
-      case 'connected': return 'text-green-400';
-      case 'syncing': return 'text-yellow-400';
-      case 'error': return 'text-red-400';
-      default: return 'text-gray-400';
-    }
-  };
-
-  const getSyncStatusText = () => {
-    switch (syncStatus) {
-      case 'connected': return 'Connected';
-      case 'syncing': return 'Syncing...';
-      case 'error': return 'Connection Error';
-      default: return 'Disconnected';
-    }
   };
 
   if (isLoading) {
@@ -224,20 +182,7 @@ function App() {
     <div className="w-full h-screen overflow-hidden relative">
       {/* Starry background */}
       <StarryBackground />
-      
-      {/* Sync status indicator */}
-      <div className="fixed top-4 right-4 z-50 bg-black bg-opacity-50 text-white px-3 py-2 rounded-lg text-xs">
-        <div className="flex items-center space-x-2">
-          <div className={`w-2 h-2 rounded-full ${syncStatus === 'connected' ? 'bg-green-400' : syncStatus === 'syncing' ? 'bg-yellow-400 animate-pulse' : 'bg-red-400'}`}></div>
-          <span className={getSyncStatusColor()}>{getSyncStatusText()}</span>
-        </div>
-        {lastSyncTime && (
-          <div className="text-gray-400 text-xs mt-1">
-            Last sync: {lastSyncTime.toLocaleTimeString()}
-          </div>
-        )}
-      </div>
-      
+          
       {/* Error notification */}
       {error && (
         <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg">
@@ -285,7 +230,7 @@ function App() {
       {candles.length > 0 && (
         <div className="relative z-20 text-center px-4 mb-4">
           <p className="body-text text-white text-xs opacity-75 drop-shadow-md">
-            Drag candles to move them • Click names to edit • Real-time sync enabled
+            Drag candles to move them • Click names to edit
           </p>
         </div>
       )}
