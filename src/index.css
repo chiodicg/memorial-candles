@@ -22,6 +22,26 @@
   animation: twinkle 2s infinite;
 }
 
+.candle {
+  position: absolute;
+  cursor: move;
+  z-index: 10;
+  touch-action: none;
+  transition: transform 0.1s ease;
+}
+
+.candle-body {
+  background: linear-gradient(180deg, #f8f6f0 0%, #e5e0d8 100%);
+  border-radius: 2px;
+  margin: 0 auto;
+  position: relative;
+  box-shadow: 0 0 20px rgba(251, 191, 36, 0.3);
+}
+
+.remove-candle {
+  margin: 0 auto;
+}
+
 @keyframes twinkle {
   0%, 100% { 
     opacity: 0.3; 
@@ -31,20 +51,6 @@
     opacity: 1; 
     transform: scale(1.2); 
   }
-}
-
-.candle {
-  position: absolute;
-  cursor: move;
-  z-index: 10;
-  touch-action: none;
-  transition: transform 0.1s ease;
-}
-
-.flame {
-  width: 12px;
-  height: 16px;
-  margin-bottom: 2px;
 }
 
 @keyframes flicker {
@@ -70,23 +76,9 @@
   }
 }
 
-.candle-body {
-  width: 24px;
-  height: 60px;
-  background: linear-gradient(180deg, #f8f6f0 0%, #e5e0d8 100%);
-  border-radius: 2px;
-  margin: 0 auto;
-  position: relative;
-  box-shadow: 0 0 20px rgba(251, 191, 36, 0.3);
-}
-
 /* Responsive text sizing */
 @media (max-width: 640px) {
   .candle-name {
     font-size: 0.75rem;
   }
-}
-
-.remove-candle {
-  margin: 0 auto;
 }
