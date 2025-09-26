@@ -8,7 +8,6 @@ function App() {
   const [candles, setCandles] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [lastSync, setLastSync] = useState(null);
   
   // Simple flag to prevent polling conflicts during user actions
   const skipNextPoll = useRef(false);
@@ -47,12 +46,9 @@ function App() {
 
           if (hasChanges) {
             console.log('Candle changes detected, updating...');
-            setLastSync(new Date());
             return remoteCandles;
           }
 
-          // Update sync time even when no changes
-          setLastSync(new Date());
           return currentCandles;
         });
       }
@@ -73,7 +69,6 @@ function App() {
         if (savedCandles && savedCandles.length > 0) {
           setCandles(savedCandles);
         }
-        setLastSync(new Date());
       } catch (err) {
         console.error('Failed to load initial candles:', err);
         setError('Failed to load saved candles. Starting fresh.');
@@ -261,16 +256,6 @@ function App() {
         </div>
       )}
 
-      {/* Connection status indicator */}
-      {lastSync && (
-        <div className="fixed top-4 right-4 z-40 text-white text-xs opacity-70">
-          <div className="flex items-center space-x-2">
-            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-            <span>Last sync: {lastSync.toLocaleTimeString()}</span>
-          </div>
-        </div>
-      )}
-      
       {/* Header */}
       <div className="relative z-20 text-center pt-8 px-4">
         <h1 className="text-white text-2xl md:text-4xl font-bold mb-2 drop-shadow-lg">
