@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 import StarryBackground from './components/StarryBackground';
 import Candle from './components/Candle';
 import gistService from './services/gistService';
 
 function App() {
   const [candles, setCandles] = useState([]);
-  const [nextId, setNextId] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastSync, setLastSync] = useState(null);
@@ -28,16 +28,31 @@ function App() {
       // Only update if we actually have data and it's different
       if (remoteCandles && remoteCandles.length >= 0) {
         setCandles(currentCandles => {
-          // Quick check if data is different
-          if (JSON.stringify(currentCandles) !== JSON.stringify(remoteCandles)) {
-            // Update nextId based on remote data
-            if (remoteCandles.length > 0) {
-              const maxId = Math.max(...remoteCandles.map(candle => candle.id));
-              setNextId(maxId + 1);
-            }
+          // More robust comparison - check length first, then content
+          if (currentCandles.length !== remoteCandles.length) {
+            console.log('Candles count changed:', currentCandles.length, '->', remoteCandles.length);
+            return remoteCandles;
+          }
+
+          // Check if any candle has changed (position, name, etc.)
+          const hasChanges = currentCandles.some(current => {
+            const remote = remoteCandles.find(r => r.id === current.id);
+            return !remote ||
+              remote.x !== current.x ||
+              remote.y !== current.y ||
+              remote.name !== current.name;
+          }) || remoteCandles.some(remote => {
+            return !currentCandles.find(c => c.id === remote.id);
+          });
+
+          if (hasChanges) {
+            console.log('Candle changes detected, updating...');
             setLastSync(new Date());
             return remoteCandles;
           }
+
+          // Update sync time even when no changes
+          setLastSync(new Date());
           return currentCandles;
         });
       }
@@ -57,8 +72,6 @@ function App() {
         
         if (savedCandles && savedCandles.length > 0) {
           setCandles(savedCandles);
-          const maxId = Math.max(...savedCandles.map(candle => candle.id));
-          setNextId(maxId + 1);
         }
         setLastSync(new Date());
       } catch (err) {
@@ -80,17 +93,18 @@ function App() {
         clearInterval(pollingInterval.current);
       }
     };
-  }, []); // Empty dependency array - only run once
+  }, []);
 
   const addCandle = async () => {
-    // Skip next poll since we're making a change
+    // Skip next few polls since we're making a change
     skipNextPoll.current = true;
+    setTimeout(() => { skipNextPoll.current = false; }, 2000);
 
     const x = Math.random() * (window.innerWidth - 100) + 50;
     const y = Math.random() * (window.innerHeight - 200) + 100;
 
     const newCandle = {
-      id: nextId,
+      id: uuidv4(),
       x,
       y,
       name: '',
@@ -99,7 +113,6 @@ function App() {
     // Update local state immediately
     const updatedCandles = [...candles, newCandle];
     setCandles(updatedCandles);
-    setNextId(nextId + 1);
 
     // Save to gist
     try {
@@ -110,8 +123,6 @@ function App() {
       
       // Update our local state with the merged result
       setCandles(mergedCandles);
-      const maxId = Math.max(...mergedCandles.map(c => c.id));
-      setNextId(maxId + 1);
     } catch (err) {
       console.error('Failed to save new candle:', err);
       setError('Failed to save candle. Please try again.');
@@ -127,6 +138,7 @@ function App() {
 
   const updateCandleName = async (id, name) => {
     skipNextPoll.current = true;
+    setTimeout(() => { skipNextPoll.current = false; }, 2000);
 
     // Update locally first
     const updatedCandles = candles.map(candle =>
@@ -156,7 +168,9 @@ function App() {
   };
 
   const updateCandlePosition = async (id, x, y) => {
+    // For position updates, skip polling for a shorter time since they're frequent
     skipNextPoll.current = true;
+    setTimeout(() => { skipNextPoll.current = false; }, 1000);
 
     // Update locally first
     const updatedCandles = candles.map(candle =>
@@ -186,6 +200,7 @@ function App() {
 
   const removeCandle = async (id) => {
     skipNextPoll.current = true;
+    setTimeout(() => { skipNextPoll.current = false; }, 1000);
 
     // Update locally first
     const updatedCandles = candles.filter(candle => candle.id !== id);
