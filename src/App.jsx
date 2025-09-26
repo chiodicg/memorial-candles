@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import StarryBackground from './components/StarryBackground';
 import Candle from './components/Candle';
 import gistService from './services/gistService';
@@ -8,57 +8,61 @@ function App() {
   const [nextId, setNextId] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
-  const isUpdatingRef = useRef(false); // Prevent conflicts during local updates
+  const [lastSync, setLastSync] = useState(null);
+  
+  // Simple flag to prevent polling conflicts during user actions
+  const skipNextPoll = useRef(false);
+  const pollingInterval = useRef(null);
 
-  // Smart merge function to handle remote updates
-  const mergeRemoteCandles = useCallback((remoteCandles, timestamp) => {
-    if (isUpdatingRef.current) {
-      // Skip merge if we're currently updating to avoid conflicts
+  // Simple polling function - just load and update
+  const pollForUpdates = async () => {
+    // Skip this poll if we just made a change
+    if (skipNextPoll.current) {
+      skipNextPoll.current = false;
       return;
     }
 
-    setCandles(currentCandles => {
-      // Simple merge strategy: use remote data but preserve any local changes
-      // In a more sophisticated app, you might want to implement conflict resolution
-      const merged = [...remoteCandles];
+    try {
+      const remoteCandles = await gistService.loadCandles();
       
-      // Update nextId to be higher than any existing ID
-      if (merged.length > 0) {
-        const maxId = Math.max(...merged.map(candle => candle.id));
-        setNextId(maxId + 1);
+      // Only update if we actually have data and it's different
+      if (remoteCandles && remoteCandles.length >= 0) {
+        setCandles(currentCandles => {
+          // Quick check if data is different
+          if (JSON.stringify(currentCandles) !== JSON.stringify(remoteCandles)) {
+            // Update nextId based on remote data
+            if (remoteCandles.length > 0) {
+              const maxId = Math.max(...remoteCandles.map(candle => candle.id));
+              setNextId(maxId + 1);
+            }
+            setLastSync(new Date());
+            return remoteCandles;
+          }
+          return currentCandles;
+        });
       }
-      
-      return merged;
-    });
-  }, []);
+    } catch (err) {
+      console.error('Polling failed:', err);
+      // Don't show errors for polling failures to avoid spam
+    }
+  };
 
-  // Handle polling updates
-  const handlePollingUpdate = useCallback((remoteCandles, timestamp) => {
-    setTimeout(() => {
-      mergeRemoteCandles(remoteCandles, timestamp);
-    }, 100); // Small delay to show syncing status
-  }, [mergeRemoteCandles]);
-
-  // Load candles from Gist on app initialization and start polling
+  // Start polling every second
   useEffect(() => {
+    // Load initial data
     const loadInitialData = async () => {
       try {
         setIsLoading(true);
-        setError(null);
-        
         const savedCandles = await gistService.loadCandles();
         
-        if (savedCandles.length > 0) {
+        if (savedCandles && savedCandles.length > 0) {
           setCandles(savedCandles);
-          // Set nextId to be higher than any existing ID
           const maxId = Math.max(...savedCandles.map(candle => candle.id));
           setNextId(maxId + 1);
         }
-
-        // Start polling for real-time updates
-        gistService.startPolling(handlePollingUpdate, gistService.defaultPollingInterval);       
+        setLastSync(new Date());
       } catch (err) {
-        console.error('Failed to load candles:', err);
+        console.error('Failed to load initial candles:', err);
         setError('Failed to load saved candles. Starting fresh.');
       } finally {
         setIsLoading(false);
@@ -67,98 +71,142 @@ function App() {
 
     loadInitialData();
 
-    // Cleanup polling on unmount
+    // Start simple polling every 1 second
+    pollingInterval.current = setInterval(pollForUpdates, 1000);
+
+    // Cleanup
     return () => {
-      gistService.stopPolling(handlePollingUpdate);
+      if (pollingInterval.current) {
+        clearInterval(pollingInterval.current);
+      }
     };
-  }, [handlePollingUpdate]);
+  }, []); // Empty dependency array - only run once
 
   const addCandle = async () => {
-    // Set updating flag to prevent conflicts
-    isUpdatingRef.current = true;
+    // Skip next poll since we're making a change
+    skipNextPoll.current = true;
 
-    // Generate random position for new candle
     const x = Math.random() * (window.innerWidth - 100) + 50;
     const y = Math.random() * (window.innerHeight - 200) + 100;
-    
+
     const newCandle = {
       id: nextId,
       x,
       y,
       name: '',
     };
-    
-    // Update local state immediately for better UX
+
+    // Update local state immediately
     const updatedCandles = [...candles, newCandle];
     setCandles(updatedCandles);
     setNextId(nextId + 1);
 
-    // Persist to Gist
+    // Save to gist
     try {
-      await gistService.addCandle(candles, newCandle);
+      // Get latest data first, then add our candle
+      const latestCandles = await gistService.loadCandles();
+      const mergedCandles = [...latestCandles, newCandle];
+      await gistService.saveCandles(mergedCandles);
+      
+      // Update our local state with the merged result
+      setCandles(mergedCandles);
+      const maxId = Math.max(...mergedCandles.map(c => c.id));
+      setNextId(maxId + 1);
     } catch (err) {
       console.error('Failed to save new candle:', err);
-      setError('Failed to save candle. Changes may not persist.');
-    } finally {
-      isUpdatingRef.current = false;
+      setError('Failed to save candle. Please try again.');
+      // Reload from server to get back in sync
+      try {
+        const serverCandles = await gistService.loadCandles();
+        setCandles(serverCandles);
+      } catch (reloadErr) {
+        console.error('Failed to reload candles after error:', reloadErr);
+      }
     }
   };
 
   const updateCandleName = async (id, name) => {
-    isUpdatingRef.current = true;
+    skipNextPoll.current = true;
 
-    // Update local state immediately
-    const updatedCandles = candles.map(candle => 
+    // Update locally first
+    const updatedCandles = candles.map(candle =>
       candle.id === id ? { ...candle, name } : candle
     );
     setCandles(updatedCandles);
 
-    // Persist to Gist
+    // Save to gist
     try {
-      await gistService.updateCandle(candles, id, { name });
+      const latestCandles = await gistService.loadCandles();
+      const mergedCandles = latestCandles.map(candle =>
+        candle.id === id ? { ...candle, name } : candle
+      );
+      await gistService.saveCandles(mergedCandles);
+      setCandles(mergedCandles);
     } catch (err) {
       console.error('Failed to update candle name:', err);
-      setError('Failed to save name change. Changes may not persist.');
-    } finally {
-      isUpdatingRef.current = false;
+      setError('Failed to save name change. Please try again.');
+      // Reload from server
+      try {
+        const serverCandles = await gistService.loadCandles();
+        setCandles(serverCandles);
+      } catch (reloadErr) {
+        console.error('Failed to reload after name update error:', reloadErr);
+      }
     }
   };
 
   const updateCandlePosition = async (id, x, y) => {
-    isUpdatingRef.current = true;
+    skipNextPoll.current = true;
 
-    // Update local state immediately
-    const updatedCandles = candles.map(candle => 
+    // Update locally first
+    const updatedCandles = candles.map(candle =>
       candle.id === id ? { ...candle, x, y } : candle
     );
     setCandles(updatedCandles);
 
-    // Persist to Gist (debounced to avoid too many API calls)
+    // Save to gist (don't show errors for position updates as they're frequent)
     try {
-      await gistService.updateCandle(candles, id, { x, y });
+      const latestCandles = await gistService.loadCandles();
+      const mergedCandles = latestCandles.map(candle =>
+        candle.id === id ? { ...candle, x, y } : candle
+      );
+      await gistService.saveCandles(mergedCandles);
+      setCandles(mergedCandles);
     } catch (err) {
       console.error('Failed to update candle position:', err);
-      // Don't show error for position updates as they're frequent
-    } finally {
-      isUpdatingRef.current = false;
+      // Silently reload from server for position updates
+      try {
+        const serverCandles = await gistService.loadCandles();
+        setCandles(serverCandles);
+      } catch (reloadErr) {
+        console.error('Failed to reload after position update error:', reloadErr);
+      }
     }
   };
 
   const removeCandle = async (id) => {
-    isUpdatingRef.current = true;
+    skipNextPoll.current = true;
 
-    // Update local state immediately
+    // Update locally first
     const updatedCandles = candles.filter(candle => candle.id !== id);
     setCandles(updatedCandles);
 
-    // Persist to Gist
+    // Save to gist
     try {
-      await gistService.removeCandle(candles, id);
+      const latestCandles = await gistService.loadCandles();
+      const mergedCandles = latestCandles.filter(candle => candle.id !== id);
+      await gistService.saveCandles(mergedCandles);
+      setCandles(mergedCandles);
     } catch (err) {
       console.error('Failed to remove candle:', err);
-      setError('Failed to remove candle. Changes may not persist.');
-    } finally {
-      isUpdatingRef.current = false;
+      setError('Failed to remove candle. Please try again.');
+      // Reload from server
+      try {
+        const serverCandles = await gistService.loadCandles();
+        setCandles(serverCandles);
+      } catch (reloadErr) {
+        console.error('Failed to reload after remove error:', reloadErr);
+      }
     }
   };
 
@@ -197,6 +245,16 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* Connection status indicator */}
+      {lastSync && (
+        <div className="fixed top-4 right-4 z-40 text-white text-xs opacity-70">
+          <div className="flex items-center space-x-2">
+            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+            <span>Last sync: {lastSync.toLocaleTimeString()}</span>
+          </div>
+        </div>
+      )}
       
       {/* Header */}
       <div className="relative z-20 text-center pt-8 px-4">
@@ -221,7 +279,7 @@ function App() {
       {/* Instructions */}
       {candles.length === 0 && (
         <div className="relative z-20 text-center px-4">
-          <p className="text-white text-white text-xs md:text-sm opacity-75 drop-shadow-md">
+          <p className="text-white text-xs md:text-sm opacity-75 drop-shadow-md">
             Click the button above to light your first candle
           </p>
         </div>
@@ -229,7 +287,7 @@ function App() {
 
       {candles.length > 0 && (
         <div className="relative z-20 text-center px-4 mb-4">
-          <p className="body-text text-white text-xs opacity-75 drop-shadow-md">
+          <p className="text-white text-xs opacity-75 drop-shadow-md">
             Drag candles to move them • Click names to edit
           </p>
         </div>
@@ -248,7 +306,6 @@ function App() {
           onRemove={removeCandle}
         />
       ))}
-
     </div>
   );
 }
