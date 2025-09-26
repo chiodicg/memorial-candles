@@ -9,6 +9,13 @@ const Candle = ({ id, initialX, initialY, name, onNameChange, onPositionChange, 
   const dragRef = useRef(null);
   const dragStart = useRef({ x: 0, y: 0 });
 
+  // Update position when props change (from other users)
+  useEffect(() => {
+    if (!isDragging) {
+      setPosition({ x: initialX, y: initialY });
+    }
+  }, [initialX, initialY, isDragging]);
+
   useEffect(() => {
     const handleMouseMove = (e) => {
       if (!isDragging) return;
